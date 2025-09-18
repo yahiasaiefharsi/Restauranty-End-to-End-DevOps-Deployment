@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: restauranty
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: frontend } }
+  template:
+    metadata: { labels: { app: frontend } }
+    spec:
+      containers:
+      - name: frontend
+        image: saief057/restauranty-frontend:v1
+        imagePullPolicy: IfNotPresent
+        ports: [{ containerPort: 80 }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: restauranty
+spec:
+  selector: { app: frontend }
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+  type: ClusterIP

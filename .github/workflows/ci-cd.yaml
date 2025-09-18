@@ -1,0 +1,141 @@
+name: CI/CD - Restauranty
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - "README.md"
+
+env:
+  REGISTRY: docker.io
+  ORG: ${{ secrets.DOCKERHUB_ORG }}
+  NAMESPACE: ${{ secrets.K8S_NAMESPACE }}
+  # Change the tag to something you like: commit SHA, date, etc.
+  IMAGE_TAG: sha-${{ github.sha }}
+  FRONTEND_API_URL: ${{ secrets.FRONTEND_API_URL || 'http://20.245.123.58' }}
+
+jobs:
+  ci-build-test:
+    name: Build & Test (PR)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    strategy:
+      matrix:
+        service:
+          - name: auth
+            path: backend/auth
+          - name: discounts
+            path: backend/discounts
+          - name: items
+            path: backend/items
+          - name: frontend
+            path: client
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Install deps
+        working-directory: ${{ matrix.service.path }}
+        run: npm ci
+
+      - name: Build
+        working-directory: ${{ matrix.service.path }}
+        run: |
+          if [ "${{ matrix.service.name }}" = "frontend" ]; then
+            # Ensure the build sees your API URL
+            export REACT_APP_SERVER_URL="${{ env.FRONTEND_API_URL }}"
+          fi
+          npm run build --if-present
+
+      - name: Run tests
+        working-directory: ${{ matrix.service.path }}
+        run: npm test --if-present -- --ci --reporters=default
+
+  cd-docker-and-deploy:
+    name: Build images, push & deploy (main)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Docker login
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Build & push 4 images
+      - name: Build & push auth
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend/auth
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.ORG }}/restauranty-auth:latest
+            ${{ env.REGISTRY }}/${{ env.ORG }}/restauranty-auth:${{ env.IMAGE_TAG }}
+
+      - name: Build & push discounts
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend/discounts
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.ORG }}/restauranty-discounts:latest
+            ${{ env.REGISTRY }}/${{ env.ORG }}/restauranty-discounts:${{ env.IMAGE_TAG }}
+
+      - name: Build & push items
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend/items
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.ORG }}/restauranty-items:latest
+            ${{ env.REGISTRY }}/${{ env.ORG }}/restauranty-items:${{ env.IMAGE_TAG }}
+
+      - name: Build & push frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./client
+          build-args: |
+            REACT_APP_SERVER_URL=${{ env.FRONTEND_API_URL }}
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.ORG }}/restauranty-frontend:latest
+            ${{ env.REGISTRY }}/${{ env.ORG }}/restauranty-frontend:${{ env.IMAGE_TAG }}
+
+      # Set KUBECONFIG from secret
+      - name: Write kubeconfig
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" > $HOME/.kube/config
+
+      - name: Set Kubernetes namespace
+        run: kubectl get ns ${{ env.NAMESPACE }} || kubectl create ns ${{ env.NAMESPACE }}
+
+      # Bump images in deployments to the new tag
+      - name: Update images
+        run: |
+          kubectl -n ${{ env.NAMESPACE }} set image deploy/auth auth=${{ env.REGISTRY }}/${{ env.ORG }}/restauranty-auth:${{ env.IMAGE_TAG }} --record
+          kubectl -n ${{ env.NAMESPACE }} set image deploy/discounts discounts=${{ env.REGISTRY }}/${{ env.ORG }}/restauranty-discounts:${{ env.IMAGE_TAG }} --record
+          kubectl -n ${{ env.NAMESPACE }} set image deploy/items items=${{ env.REGISTRY }}/${{ env.ORG }}/restauranty-items:${{ env.IMAGE_TAG }} --record
+          kubectl -n ${{ env.NAMESPACE }} set image deploy/frontend frontend=${{ env.REGISTRY }}/${{ env.ORG }}/restauranty-frontend:${{ env.IMAGE_TAG }} --record
+
+      - name: Apply k8s manifests (safety)
+        run: kubectl -n ${{ env.NAMESPACE }} apply -f k8s/
+
+      - name: Wait for rollout
+        run: |
+          kubectl -n ${{ env.NAMESPACE }} rollout status deploy/auth --timeout=180s
+          kubectl -n ${{ env.NAMESPACE }} rollout status deploy/discounts --timeout=180s
+          kubectl -n ${{ env.NAMESPACE }} rollout status deploy/items --timeout=180s
+          kubectl -n ${{ env.NAMESPACE }} rollout status deploy/frontend --timeout=180s

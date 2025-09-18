@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth
+  namespace: restauranty
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: auth } }
+  template:
+    metadata: { labels: { app: auth } }
+    spec:
+      containers:
+      - name: auth
+        image: saief057/restauranty-auth:latest
+        imagePullPolicy: IfNotPresent
+        ports: [{ containerPort: 3001 }]
+        envFrom:
+        - secretRef: { name: restauranty-secrets }
+        env:
+        - { name: PORT, value: "3001" }
+        # If your code enforces CORS, set ORIGIN to your Ingress IP (http, no https yet)
+        # - { name: ORIGIN, value: "http://20.245.123.58" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth
+  namespace: restauranty
+spec:
+  selector: { app: auth }
+  ports:
+  - name: http
+    port: 3001
+    targetPort: 3001
+  type: ClusterIP
