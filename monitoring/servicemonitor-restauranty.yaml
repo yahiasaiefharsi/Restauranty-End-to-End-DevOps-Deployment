@@ -1,0 +1,15 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: restauranty-services
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames: [ restauranty ]
+  selector:
+    matchExpressions:
+      - { key: app, operator: In, values: [ "auth", "items", "discounts" ] }
+  endpoints:
+    - path: /metrics
+      port: http
+      interval: 15s

@@ -1,0 +1,75 @@
+grafana:
+  admin:
+    existingSecret: grafana-admin   # we’ll create this secret
+    userKey: admin-user
+    passwordKey: admin-password
+  
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      uid: loki
+      access: proxy
+      url: http://loki.monitoring.svc.cluster.local:3100
+
+ 
+  ingress:
+    enabled: true
+    annotations:
+      kubernetes.io/ingress.class: nginx
+    hosts:
+      - grafana.saief.diogohack.shop  
+    path: /
+    pathType: Prefix
+
+  persistence:
+    enabled: true
+    size: 5Gi
+    accessModes: ["ReadWriteOnce"]
+    storageClassName: default
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+prometheus:
+  prometheusSpec:
+    retention: 7d
+    resources:
+      requests:
+        cpu: 200m
+        memory: 1Gi
+      limits:
+        cpu: 1
+        memory: 2Gi
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 20Gi
+
+alertmanager:
+  alertmanagerSpec:
+    retention: 120h
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      receiver: "slack"
+    receivers:
+      - name: "slack"
+        slack_configs:
+          - api_url: $SLACK_WEBHOOK_URL
+            send_resolved: true
+            title: "[Restauranty] {{ .CommonLabels.alertname }}"
+            text: |
+              *Severity:* {{ .CommonLabels.severity }}
+              *Summary:* {{ .CommonAnnotations.summary }}
+              *Description:* {{ .CommonAnnotations.description }}
+             
+

@@ -1,0 +1,29 @@
+loki:
+  auth_enabled: false
+  persistence:
+    enabled: true
+    size: 10Gi
+    accessModes: [ "ReadWriteOnce" ]
+    # storageClassName: default
+promtail:
+  enabled: true
+  scrapeConfigs:
+    - job_name: kubernetes-pods
+      pipeline_stages:
+        - docker: {}
+      kubernetes_sd_configs:
+        - role: pod
+      relabel_configs:
+        - action: replace
+          source_labels: [ __meta_kubernetes_namespace ]
+          target_label: namespace
+        - action: replace
+          source_labels: [ __meta_kubernetes_pod_name ]
+          target_label: pod
+        - action: replace
+          source_labels: [ __meta_kubernetes_container_name ]
+          target_label: container
+grafana:
+  enabled: false   # we already have Grafana from kube-prometheus-stack
+prometheus:
+  enabled: false

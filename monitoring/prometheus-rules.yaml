@@ -1,0 +1,17 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: restauranty-rules
+  namespace: monitoring
+spec:
+  groups:
+  - name: restauranty.rules
+    rules:
+    - alert: ServiceDown
+      expr: up == 0
+      for: 1m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Service {{ $labels.job }} is down"
+        description: "{{ $labels.job }} on {{ $labels.instance }} is not reachable"

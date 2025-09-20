@@ -1,0 +1,17 @@
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: slack
+  namespace: monitoring
+spec:
+  route:
+    receiver: slack
+    groupBy: [ 'job' ]
+  receivers:
+  - name: slack
+    slackConfigs:
+    - apiURL:
+        name: alertmanager-slack
+        key: SLACK_WEBHOOK_URL
+      channel: '#alerts'          # or your channel
+      sendResolved: true
